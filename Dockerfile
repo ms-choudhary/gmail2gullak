@@ -15,8 +15,8 @@ WORKDIR /app
 
 COPY --from=builder /app/gmail2gullak .
 
-COPY entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh .
 
 EXPOSE 8999
 
-CMD ["/entrypoint.sh"]
+CMD ["/app/entrypoint.sh"]
