@@ -7,16 +7,14 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o ./gmail2gullak .
+RUN CGO_ENABLED=0 GOOS=linux go build -o ./gmail2gullak .
 
 FROM alpine:3.14
 
 WORKDIR /app
 
-COPY --from=builder /app/gmail2gullak .
-
-COPY entrypoint.sh .
+COPY --from=builder /app/gmail2gullak /usr/local/bin/gmail2gullak
 
 EXPOSE 8999
 
-CMD ["/app/entrypoint.sh"]
+CMD ["gmail2gullak"]

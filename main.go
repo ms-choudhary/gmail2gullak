@@ -8,15 +8,18 @@ import (
 	"time"
 
 	"github.com/ms-choudhary/gmail2gullak/internal/email"
+	"github.com/ms-choudhary/gmail2gullak/internal/gullak"
 )
 
 func main() {
 	credentialsFile := flag.String("credentials", "credentials.json", "Google Oauth Credentails File")
 	listenAddr := flag.String("listen", ":8999", "Listen addr for oauth redirect")
+	gullakAddr := flag.String("gullakaddr", "http://localhost:3333", "Gullak server address")
 	pollInterval := flag.Duration("every", 30*time.Second, "Poll interval")
 	flag.Parse()
 
 	server := &email.Server{CredentialsFile: *credentialsFile}
+	gullakClient := gullak.NewClient(*gullakAddr)
 
 	go func() {
 		ctx := context.Background()
@@ -25,7 +28,7 @@ func main() {
 			if err != nil {
 				log.Printf("could not get email client: %v", err)
 			} else {
-				if err := client.ProcessMessages(ctx); err != nil {
+				if err := client.ProcessMessages(ctx, gullakClient); err != nil {
 					log.Printf("failed to read messages, will be retried: %v", err)
 				}
 			}

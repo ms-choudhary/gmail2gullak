@@ -26,7 +26,7 @@ const (
 )
 
 type Client interface {
-	ProcessMessages(ctx context.Context) error
+	ProcessMessages(ctx context.Context, gc *gullak.Client) error
 }
 
 type GmailClient struct {
@@ -298,7 +298,7 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 	}, nil
 }
 
-func (c *GmailClient) ProcessMessages(ctx context.Context) error {
+func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.Client) error {
 	if err := c.refreshToken(ctx); err != nil {
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
@@ -338,7 +338,7 @@ func (c *GmailClient) ProcessMessages(ctx context.Context) error {
 		}
 
 		log.Printf("[%s] creating transaction: %v", messages[i].Id, txn)
-		if err := gullak.CreateTransaction(txn); err != nil {
+		if err := gullakClient.CreateTransaction(txn); err != nil {
 			log.Printf("failed to create transaction: %v", err)
 			continue
 		}

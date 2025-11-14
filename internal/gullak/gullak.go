@@ -10,7 +10,15 @@ import (
 	"github.com/ms-choudhary/gmail2gullak/internal/models"
 )
 
-func CreateTransaction(txn models.Transaction) error {
+type Client struct {
+	Addr string
+}
+
+func NewClient(addr string) *Client {
+	return &Client{Addr: addr}
+}
+
+func (c *Client) CreateTransaction(txn models.Transaction) error {
 	b, err := json.Marshal(txn)
 	if err != nil {
 		return fmt.Errorf("cannot marshal json: %v", err)
@@ -18,7 +26,7 @@ func CreateTransaction(txn models.Transaction) error {
 
 	client := &http.Client{}
 
-	req, err := http.NewRequest("POST", "http://localhost:3333/api/transactions", bytes.NewBuffer(b))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/transactions", c.Addr), bytes.NewBuffer(b))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}

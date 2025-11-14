@@ -67,7 +67,7 @@ func (p Parser) parse(msg models.Message) (models.Transaction, error) {
 }
 
 func parseDate(datestr string) (string, error) {
-	inputLayout := "Mon, 02 Jan 2006 15:04:05 -0700"
+	inputLayout := "Mon, 2 Jan 2006 15:04:05 -0700"
 	parsedDate, err := time.Parse(inputLayout, datestr)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse date: %s: %v", datestr, err)
