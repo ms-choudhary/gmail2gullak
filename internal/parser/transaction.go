@@ -26,6 +26,11 @@ var (
 		priceRegex:  regexp.MustCompile(`Rs\.(\d+(?:\.\d+)?) is debited from`),
 		vendorRegex: regexp.MustCompile(`towards\s+([^\s]+(?:\s+[^\s]+)*?)\s+on\s+`),
 	}
+
+	dcbBankParser = Parser{
+		priceRegex:  regexp.MustCompile(`INR\s+(\d+\.?\d*)\s+on`),
+		vendorRegex: regexp.MustCompile(`(?:at\s+VS\/\d+\/[\d:]+\/(.+?)\s+\.|on account of (.+?)\.\s+Available)`),
+	}
 )
 
 var NotTransactionErr = errors.New("not a transaction")
@@ -80,6 +85,8 @@ func ParseTransaction(msg models.Message) (models.Transaction, error) {
 		return hdfcUPIParser.parse(msg)
 	} else if strings.Contains(msg.Subject, "debited via Credit Card") {
 		return hdfcCreditCardParser.parse(msg)
+	} else if strings.Contains(msg.Subject, "DCB Bank email alert: Account debit intimation") {
+		return dcbBankParser.parse(msg)
 	}
 	return models.Transaction{}, NotTransactionErr
 }
