@@ -54,7 +54,16 @@ func (p Parser) parse(msg models.Message) (models.Transaction, error) {
 
 	vendorMatch := p.vendorRegex.FindStringSubmatch(msg.Body)
 	if len(vendorMatch) > 1 {
-		txn.Description = strings.TrimSpace(vendorMatch[1])
+
+		vendor := ""
+		for _, group := range vendorMatch[1:] {
+			if group != "" {
+				vendor = group
+				break
+			}
+
+		}
+		txn.Description = strings.TrimSpace(vendor)
 	}
 
 	if txn.Amount == 0 || txn.Description == "" {
@@ -72,6 +81,12 @@ func (p Parser) parse(msg models.Message) (models.Transaction, error) {
 }
 
 func parseDate(datestr string) (string, error) {
+	// Remove optional timezone name in parentheses like "(IST)"
+	// This handles formats like: "Fri, 14 Nov 2025 20:59:28 +0530 (IST)"
+	if idx := strings.Index(datestr, " ("); idx != -1 {
+		datestr = datestr[:idx]
+	}
+
 	inputLayout := "Mon, 2 Jan 2006 15:04:05 -0700"
 	parsedDate, err := time.Parse(inputLayout, datestr)
 	if err != nil {
