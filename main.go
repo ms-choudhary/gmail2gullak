@@ -18,13 +18,16 @@ func main() {
 	pollInterval := flag.Duration("every", 30*time.Second, "Poll interval")
 	flag.Parse()
 
-	server := &email.Server{CredentialsFile: *credentialsFile}
+	server, err := email.NewServer(*credentialsFile)
+	if err != nil {
+		log.Fatal(err)
+	}
 	gullakClient := gullak.NewClient(*gullakAddr)
 
 	go func() {
 		ctx := context.Background()
 		for {
-			client, err := email.NewGmailClient(ctx, *credentialsFile)
+			client, err := server.NewGmailClient(ctx)
 			if err != nil {
 				log.Printf("could not get email client: %v", err)
 			} else {

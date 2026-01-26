@@ -36,29 +36,24 @@ type GmailClient struct {
 }
 
 type Server struct {
-	ListenAddr      string
-	CredentialsFile string
-	Config          *oauth2.Config
+	Config *oauth2.Config
 }
 
-func (s *Server) HandleLogin(w http.ResponseWriter, req *http.Request) {
-	credentials, err := ioutil.ReadFile(s.CredentialsFile)
+func NewServer(credentialsFile string) (*Server, error) {
+	credentials, err := ioutil.ReadFile(credentialsFile)
 	if err != nil {
-		log.Printf("err: could not read credentials: %v", err)
-		fmt.Fprintf(w, "could not read credentials")
-		return
+		return nil, fmt.Errorf("err: could not read credentials: %v", err)
 	}
 
 	config, err := google.ConfigFromJSON(credentials, gmail.GmailReadonlyScope)
 	if err != nil {
-		log.Printf("err: could not parse credentials: %v", err)
-		fmt.Fprintf(w, "could not parse credentials")
-		return
+		return nil, fmt.Errorf("err: could not parse credentials: %v", err)
 	}
+	return &Server{Config: config}, nil
+}
 
-	s.Config = config
-
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+func (s *Server) HandleLogin(w http.ResponseWriter, req *http.Request) {
+	authURL := s.Config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	log.Print("starting login flow")
 
 	http.Redirect(w, req, authURL, http.StatusMovedPermanently)
@@ -121,23 +116,13 @@ func saveToken(token *oauth2.Token) error {
 	return nil
 }
 
-func NewGmailClient(ctx context.Context, credentialsFile string) (Client, error) {
+func (s *Server) NewGmailClient(ctx context.Context) (Client, error) {
 	token, err := readToken()
 	if err != nil {
 		return nil, err
 	}
 
-	credentials, err := ioutil.ReadFile(credentialsFile)
-	if err != nil {
-		return nil, fmt.Errorf("could not read credentials: %v", err)
-	}
-
-	config, err := google.ConfigFromJSON(credentials, gmail.GmailReadonlyScope)
-	if err != nil {
-		return nil, fmt.Errorf("could not read credentials: %v", err)
-	}
-
-	client := config.Client(ctx, token)
+	client := s.Config.Client(ctx, token)
 	srv, err := gmail.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve gmail client: %v", err)
@@ -145,7 +130,7 @@ func NewGmailClient(ctx context.Context, credentialsFile string) (Client, error)
 
 	return &GmailClient{
 		service: srv,
-		config:  config,
+		config:  s.Config,
 		token:   token,
 	}, nil
 }
