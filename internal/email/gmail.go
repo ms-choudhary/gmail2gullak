@@ -151,6 +151,7 @@ func (s *Server) NewGmailClient(ctx context.Context) (Client, error) {
 
 func (c *GmailClient) refreshToken(ctx context.Context) error {
 	if c.token.Valid() {
+		c.refreshTokenFailed = false
 		return nil
 	}
 
