@@ -28,6 +28,7 @@ func main() {
 		ctx := context.Background()
 		for {
 			client, err := server.NewGmailClient(ctx)
+
 			if err != nil {
 				log.Printf("could not get email client: %v", err)
 			} else {
@@ -41,6 +42,7 @@ func main() {
 	}()
 
 	http.HandleFunc("/login", server.HandleLogin)
+	http.HandleFunc("/status", server.HandleStatus)
 	http.HandleFunc("/oauth2callback", server.HandleOauthCallback)
 
 	log.Fatal(http.ListenAndServe(*listenAddr, nil))

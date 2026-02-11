@@ -30,13 +30,15 @@ type Client interface {
 }
 
 type GmailClient struct {
-	service *gmail.Service
-	config  *oauth2.Config
-	token   *oauth2.Token
+	service            *gmail.Service
+	config             *oauth2.Config
+	token              *oauth2.Token
+	refreshTokenFailed bool
 }
 
 type Server struct {
-	Config *oauth2.Config
+	Config      *oauth2.Config
+	EmailClient *GmailClient
 }
 
 func NewServer(credentialsFile string) (*Server, error) {
@@ -58,6 +60,16 @@ func (s *Server) HandleLogin(w http.ResponseWriter, req *http.Request) {
 
 	http.Redirect(w, req, authURL, http.StatusMovedPermanently)
 	return
+}
+
+func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {
+	if s.EmailClient.refreshTokenFailed {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Failed to refresh token")
+		return
+	}
+
+	fmt.Fprintf(w, "ok")
 }
 
 func (s *Server) HandleOauthCallback(w http.ResponseWriter, req *http.Request) {
@@ -128,11 +140,13 @@ func (s *Server) NewGmailClient(ctx context.Context) (Client, error) {
 		return nil, fmt.Errorf("could not retrieve gmail client: %v", err)
 	}
 
-	return &GmailClient{
+	s.EmailClient = &GmailClient{
 		service: srv,
 		config:  s.Config,
 		token:   token,
-	}, nil
+	}
+
+	return s.EmailClient, nil
 }
 
 func (c *GmailClient) refreshToken(ctx context.Context) error {
@@ -144,6 +158,7 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 	tokenSource := c.config.TokenSource(ctx, c.token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
+		c.refreshTokenFailed = true
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
 
@@ -160,6 +175,7 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 	}
 	c.service = srv
 
+	c.refreshTokenFailed = false
 	log.Println("token refreshed successfully")
 	return nil
 }
