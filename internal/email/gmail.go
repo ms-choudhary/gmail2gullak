@@ -82,13 +82,13 @@ func (s *Server) HandleOauthCallback(w http.ResponseWriter, req *http.Request) {
 
 	token, err := s.Config.Exchange(context.TODO(), code)
 	if err != nil {
-		log.Print("oauthcallback: failed to retrieve token: %v", err)
+		log.Printf("oauthcallback: failed to retrieve token: %v", err)
 		fmt.Fprintf(w, "failed to retrieve token: %v", err)
 		return
 	}
 
 	if err := saveToken(token); err != nil {
-		log.Print("oauthcallback: failed to save token: %v", err)
+		log.Printf("oauthcallback: failed to save token: %v", err)
 		fmt.Fprintf(w, "failed to save token: %v", err)
 		return
 	}
@@ -210,7 +210,7 @@ func saveReadState(state *ReadState) error {
 }
 
 func (c *GmailClient) readMessagesFromLastReadState(state *ReadState) ([]*gmail.Message, error) {
-	r, err := c.service.Users.Messages.List("me").MaxResults(100).Q("").Do()
+	r, err := c.service.Users.Messages.List("me").MaxResults(1000).Q("").Do()
 	if err != nil {
 		return []*gmail.Message{}, fmt.Errorf("could not retreive messages: %v", err)
 	}
@@ -220,6 +220,15 @@ func (c *GmailClient) readMessagesFromLastReadState(state *ReadState) ([]*gmail.
 	}
 
 	for i, m := range r.Messages {
+		message, _ := c.getMessageByID(m.Id)
+		txn, err := parser.ParseTransaction(message)
+		if parser.IsNotTransaction(err) {
+			continue
+		} else if err != nil {
+			log.Printf("failed to parse transaction: %v", err)
+			continue
+		}
+		fmt.Println(m.Id, txn)
 		if m.Id == state.LastMessageID {
 			return r.Messages[:i], nil
 		}
@@ -251,39 +260,66 @@ func decodeBase64URL(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
-// extractBody recursively extracts the body from message payload
-func extractBody(payload *gmail.MessagePart) string {
-	body := ""
-
-	// If this part has body data
-	if payload.Body != nil && payload.Body.Data != "" {
-		// Decode base64url encoded data
-		data, err := decodeBase64URL(payload.Body.Data)
-		if err == nil {
-			body += string(data)
-		}
+func isPDFAttachment(part *gmail.MessagePart) bool {
+	if part == nil {
+		return false
 	}
 
-	// If this part has sub-parts, process them recursively
+	isPDFMimeType := strings.EqualFold(part.MimeType, "application/pdf")
+	hasPDFFilename := strings.HasSuffix(strings.ToLower(part.Filename), ".pdf")
+
+	return (isPDFMimeType || hasPDFFilename) && part.Body != nil && part.Body.AttachmentId != ""
+}
+
+func decodePartBody(part *gmail.MessagePart) string {
+	if part == nil || part.Body == nil || part.Body.Data == "" {
+		return ""
+	}
+
+	data, err := decodeBase64URL(part.Body.Data)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
+}
+
+// extractBody recursively extracts the plain-text body from the payload and any PDF attachments.
+func extractBody(payload *gmail.MessagePart) (string, []models.PDFAttachment) {
+	if payload == nil {
+		return "", nil
+	}
+
+	var pdfAttachments []models.PDFAttachment
+
+	if isPDFAttachment(payload) {
+		pdfAttachments = append(pdfAttachments, models.PDFAttachment{
+			Filename:     payload.Filename,
+			MimeType:     payload.MimeType,
+			AttachmentID: payload.Body.AttachmentId,
+		})
+	}
+
+	if payload.MimeType == "text/plain" {
+		return decodePartBody(payload), pdfAttachments
+	}
+
+	body := decodePartBody(payload)
+
 	if payload.Parts != nil {
 		for _, part := range payload.Parts {
-			// Prefer text/plain content
-			if part.MimeType == "text/plain" {
-				if part.Body != nil && part.Body.Data != "" {
-					data, err := decodeBase64URL(part.Body.Data)
-					if err == nil {
-						body = string(data) // Replace with plain text
-						break
-					}
-				}
-			} else {
-				// Recursively extract from sub-parts
-				body += extractBody(part)
+			partBody, partPDFAttachments := extractBody(part)
+			pdfAttachments = append(pdfAttachments, partPDFAttachments...)
+
+			if part.MimeType == "text/plain" && partBody != "" {
+				return partBody, pdfAttachments
 			}
+
+			body += partBody
 		}
 	}
 
-	return body
+	return body, pdfAttachments
 }
 
 func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
@@ -292,11 +328,14 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 		return models.Message{}, fmt.Errorf("could not get message: %s: %v", id, err)
 	}
 
+	body, pdfAttachments := extractBody(msg.Payload)
+
 	return models.Message{
-		Subject: extractHeader(msg.Payload.Headers, "Subject"),
-		From:    extractHeader(msg.Payload.Headers, "From"),
-		Date:    extractHeader(msg.Payload.Headers, "Date"),
-		Body:    extractBody(msg.Payload),
+		Subject:        extractHeader(msg.Payload.Headers, "Subject"),
+		From:           extractHeader(msg.Payload.Headers, "From"),
+		Date:           extractHeader(msg.Payload.Headers, "Date"),
+		Body:           body,
+		PDFAttachments: pdfAttachments,
 	}, nil
 }
 

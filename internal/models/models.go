@@ -3,10 +3,17 @@ package models
 import "fmt"
 
 type Message struct {
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-	From    string `json:"from"`
-	Date    string `json:"date"`
+	Subject        string          `json:"subject"`
+	Body           string          `json:"body"`
+	From           string          `json:"from"`
+	Date           string          `json:"date"`
+	PDFAttachments []PDFAttachment `json:"pdf_attachments"`
+}
+
+type PDFAttachment struct {
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mime_type"`
+	AttachmentID string `json:"attachment_id"`
 }
 
 type Transaction struct {
