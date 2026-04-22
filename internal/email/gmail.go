@@ -284,42 +284,100 @@ func decodePartBody(part *gmail.MessagePart) string {
 	return string(data)
 }
 
-// extractBody recursively extracts the plain-text body from the payload and any PDF attachments.
-func extractBody(payload *gmail.MessagePart) (string, []models.PDFAttachment) {
+func collectPDFAttachmentParts(payload *gmail.MessagePart) []*gmail.MessagePart {
 	if payload == nil {
-		return "", nil
+		return nil
 	}
 
-	var pdfAttachments []models.PDFAttachment
+	var parts []*gmail.MessagePart
 
 	if isPDFAttachment(payload) {
-		pdfAttachments = append(pdfAttachments, models.PDFAttachment{
-			Filename:     payload.Filename,
-			MimeType:     payload.MimeType,
-			AttachmentID: payload.Body.AttachmentId,
-		})
+		parts = append(parts, payload)
+	}
+
+	for _, part := range payload.Parts {
+		parts = append(parts, collectPDFAttachmentParts(part)...)
+	}
+
+	return parts
+}
+
+// extractBody recursively extracts the plain-text body from the payload.
+func extractBody(payload *gmail.MessagePart) string {
+	if payload == nil {
+		return ""
 	}
 
 	if payload.MimeType == "text/plain" {
-		return decodePartBody(payload), pdfAttachments
+		return decodePartBody(payload)
 	}
 
 	body := decodePartBody(payload)
 
 	if payload.Parts != nil {
 		for _, part := range payload.Parts {
-			partBody, partPDFAttachments := extractBody(part)
-			pdfAttachments = append(pdfAttachments, partPDFAttachments...)
+			partBody := extractBody(part)
 
 			if part.MimeType == "text/plain" && partBody != "" {
-				return partBody, pdfAttachments
+				return partBody
 			}
 
 			body += partBody
 		}
 	}
 
-	return body, pdfAttachments
+	return body
+}
+
+func (c *GmailClient) getPDFAttachmentData(messageID string, part *gmail.MessagePart) ([]byte, error) {
+	if part == nil || part.Body == nil {
+		return nil, fmt.Errorf("pdf attachment is missing body metadata")
+	}
+
+	if part.Body.Data != "" {
+		data, err := decodeBase64URL(part.Body.Data)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode inline attachment data: %v", err)
+		}
+
+		return data, nil
+	}
+
+	if part.Body.AttachmentId == "" {
+		return nil, fmt.Errorf("pdf attachment is missing attachment id")
+	}
+
+	attachment, err := c.service.Users.Messages.Attachments.Get("me", messageID, part.Body.AttachmentId).Do()
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch attachment data: %v", err)
+	}
+
+	data, err := decodeBase64URL(attachment.Data)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode attachment data: %v", err)
+	}
+
+	return data, nil
+}
+
+func (c *GmailClient) extractPDFAttachments(messageID string, payload *gmail.MessagePart) []models.PDFAttachment {
+	var attachments []models.PDFAttachment
+
+	for _, part := range collectPDFAttachmentParts(payload) {
+		fileData, err := c.getPDFAttachmentData(messageID, part)
+		if err != nil {
+			log.Printf("failed to load pdf attachment %q for message %s: %v", part.Filename, messageID, err)
+			continue
+		}
+
+		attachments = append(attachments, models.PDFAttachment{
+			Filename: part.Filename,
+			MimeType: part.MimeType,
+			FileData: fileData,
+		})
+	}
+
+	return attachments
 }
 
 func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
@@ -328,7 +386,8 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 		return models.Message{}, fmt.Errorf("could not get message: %s: %v", id, err)
 	}
 
-	body, pdfAttachments := extractBody(msg.Payload)
+	body := extractBody(msg.Payload)
+	pdfAttachments := c.extractPDFAttachments(id, msg.Payload)
 
 	return models.Message{
 		Subject:        extractHeader(msg.Payload.Headers, "Subject"),

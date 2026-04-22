@@ -11,9 +11,9 @@ type Message struct {
 }
 
 type PDFAttachment struct {
-	Filename     string `json:"filename"`
-	MimeType     string `json:"mime_type"`
-	AttachmentID string `json:"attachment_id"`
+	Filename string `json:"filename"`
+	MimeType string `json:"mime_type"`
+	FileData []byte `json:"file_data"`
 }
 
 type Transaction struct {
