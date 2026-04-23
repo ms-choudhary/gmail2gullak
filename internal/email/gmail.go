@@ -155,7 +155,6 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 		return nil
 	}
 
-	log.Println("token expired, refreshing...")
 	tokenSource := c.config.TokenSource(ctx, c.token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
@@ -177,7 +176,6 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 	c.service = srv
 
 	c.refreshTokenFailed = false
-	log.Println("token refreshed successfully")
 	return nil
 }
 
@@ -210,7 +208,7 @@ func saveReadState(state *ReadState) error {
 }
 
 func (c *GmailClient) readMessagesFromLastReadState(state *ReadState) ([]*gmail.Message, error) {
-	r, err := c.service.Users.Messages.List("me").MaxResults(1000).Q("").Do()
+	r, err := c.service.Users.Messages.List("me").MaxResults(100).Q("").Do()
 	if err != nil {
 		return []*gmail.Message{}, fmt.Errorf("could not retreive messages: %v", err)
 	}
@@ -220,15 +218,6 @@ func (c *GmailClient) readMessagesFromLastReadState(state *ReadState) ([]*gmail.
 	}
 
 	for i, m := range r.Messages {
-		message, _ := c.getMessageByID(m.Id)
-		txn, err := parser.ParseTransaction(message)
-		if parser.IsNotTransaction(err) {
-			continue
-		} else if err != nil {
-			log.Printf("failed to parse transaction: %v", err)
-			continue
-		}
-		fmt.Println(m.Id, txn)
 		if m.Id == state.LastMessageID {
 			return r.Messages[:i], nil
 		}
@@ -268,7 +257,7 @@ func isPDFAttachment(part *gmail.MessagePart) bool {
 	isPDFMimeType := strings.EqualFold(part.MimeType, "application/pdf")
 	hasPDFFilename := strings.HasSuffix(strings.ToLower(part.Filename), ".pdf")
 
-	return (isPDFMimeType || hasPDFFilename) && part.Body != nil && part.Body.AttachmentId != ""
+	return (isPDFMimeType || hasPDFFilename) && part.Body != nil && part.Body.Data != ""
 }
 
 func decodePartBody(part *gmail.MessagePart) string {
@@ -437,7 +426,6 @@ func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.
 			continue
 		}
 
-		log.Printf("[%s] creating transaction: %v", messages[i].Id, txn)
 		if err := gullakClient.CreateTransaction(txn); err != nil {
 			log.Printf("failed to create transaction: %v", err)
 			continue

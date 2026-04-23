@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+	"log"
 	"net/http"
 
 	"github.com/ms-choudhary/gmail2gullak/internal/models"
@@ -33,17 +33,30 @@ func (c *Client) CreateTransaction(txn models.Transaction) error {
 
 	req.Header.Add("Content-Type", "application/json")
 
+	log.Printf("creating transaction: %v", txn)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to make request: %v", err)
 	}
 
+	type Resp struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+
+	var r Resp
+
 	defer resp.Body.Close()
 
-	if resp.StatusCode > 299 {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed with status code: %v: %s", resp.Status, data)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return fmt.Errorf("failed to decode resp body: %v", err)
 	}
+
+	if resp.StatusCode > 299 {
+		return fmt.Errorf("failed with status code: %v: %s", resp.Status, r.Error)
+	}
+
+	log.Printf("message: %s", r.Message)
 
 	return nil
 }
