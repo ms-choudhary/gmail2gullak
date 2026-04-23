@@ -40,7 +40,7 @@ func IsNotTransaction(err error) bool {
 }
 
 func (p Parser) parse(msg models.Message) (models.Transaction, error) {
-	txn := models.Transaction{}
+	txn := models.Transaction{MessageID: msg.ID}
 
 	priceMatch := p.priceRegex.FindStringSubmatch(msg.Body)
 	if len(priceMatch) > 1 {

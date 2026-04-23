@@ -3,6 +3,7 @@ package models
 import "fmt"
 
 type Message struct {
+	ID             string          `json:"id"`
 	Subject        string          `json:"subject"`
 	Body           string          `json:"body"`
 	From           string          `json:"from"`
@@ -20,6 +21,7 @@ type Transaction struct {
 	Amount          float64 `json:"amount"`
 	Description     string  `json:"description"`
 	TransactionDate string  `json:"transaction_date"`
+	MessageID       string  `json:"message_id"`
 }
 
 func (t Transaction) String() string {

@@ -379,6 +379,7 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 	pdfAttachments := c.extractPDFAttachments(id, msg.Payload)
 
 	return models.Message{
+		ID:             id,
 		Subject:        extractHeader(msg.Payload.Headers, "Subject"),
 		From:           extractHeader(msg.Payload.Headers, "From"),
 		Date:           extractHeader(msg.Payload.Headers, "Date"),
