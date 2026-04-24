@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -27,15 +26,18 @@ func (c *Client) Match(msg models.Message) bool {
 	return false
 }
 
-func (c *Client) Handle(msg models.Message) error {
+func (c *Client) Handle(msg models.Message) (string, error) {
 	if len(msg.PDFAttachments) != 1 {
-		return fmt.Errorf("expected 1 attachment, got: %v", len(msg.PDFAttachments))
+		return "", fmt.Errorf("[%s] casparser failed: expected 1 attachment, got: %v", msg.ID, len(msg.PDFAttachments))
 	}
 
 	attachment := msg.PDFAttachments[0]
-	log.Printf("found 1 attachment, filename: %s", attachment.Filename)
 
-	return c.sendToCASParser(attachment.FileData, attachment.Filename, "Linux11!")
+	if err := c.sendToCASParser(attachment.FileData, attachment.Filename, "Linux11!"); err != nil {
+		return "", fmt.Errorf("[%s] casparser api failed: %v", msg.ID, err)
+	}
+
+	return fmt.Sprintf("[%s] casparser cas statement %s added", msg.ID, attachment.Filename), nil
 }
 
 func (c *Client) sendToCASParser(pdfData []byte, filename, password string) error {

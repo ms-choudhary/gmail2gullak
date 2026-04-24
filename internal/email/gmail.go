@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ms-choudhary/gmail2gullak/internal/models"
+	"github.com/slack-go/slack"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
@@ -24,7 +25,7 @@ const (
 )
 
 type Client interface {
-	ProcessMessages(ctx context.Context, handlers []models.APIHandler) error
+	ProcessMessages(ctx context.Context, handlers []models.APIHandler, token string) error
 }
 
 type GmailClient struct {
@@ -255,7 +256,7 @@ func isPDFAttachment(part *gmail.MessagePart) bool {
 	isPDFMimeType := strings.EqualFold(part.MimeType, "application/pdf")
 	hasPDFFilename := strings.HasSuffix(strings.ToLower(part.Filename), ".pdf")
 
-	return (isPDFMimeType || hasPDFFilename) && part.Body != nil && part.Body.Data != ""
+	return (isPDFMimeType || hasPDFFilename) && part.Body != nil
 }
 
 func decodePartBody(part *gmail.MessagePart) string {
@@ -386,7 +387,16 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 	}, nil
 }
 
-func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler) error {
+func postSlackMessage(token, message string) error {
+	client := slack.New(token)
+	_, _, err := client.PostMessage("C0AUQ88NCAZ", slack.MsgOptionText(message, false))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler, slackToken string) error {
 	if err := c.refreshToken(ctx); err != nil {
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
@@ -412,14 +422,26 @@ func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.API
 		msg, err := c.getMessageByID(messages[i].Id)
 		if err != nil {
 			log.Print(err)
-			continue
+			return err
 		}
 
 		for _, h := range handlers {
 			if h.Match(msg) {
-				if err := h.Handle(msg); err != nil {
-					log.Printf("failed to handle: %v", err)
+				status, err := h.Handle(msg)
+
+				if err != nil {
+					log.Printf("handler failed: %v", err)
+					if err := postSlackMessage(slackToken, err.Error()); err != nil {
+						log.Printf("failed to slack: %v", err)
+					}
+					return err
 				}
+
+				log.Print(status)
+				if err := postSlackMessage(slackToken, status); err != nil {
+					log.Printf("failed to slack: %v", err)
+				}
+
 				break
 			}
 		}

@@ -30,5 +30,5 @@ func (t Transaction) String() string {
 
 type APIHandler interface {
 	Match(message Message) bool
-	Handle(message Message) error
+	Handle(message Message) (status string, err error)
 }

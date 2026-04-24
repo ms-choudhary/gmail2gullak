@@ -23,17 +23,17 @@ func (c *Client) Match(msg models.Message) bool {
 	return err != NotTransactionErr
 }
 
-func (c *Client) Handle(message models.Message) error {
+func (c *Client) Handle(message models.Message) (string, error) {
 	txn, err := ParseTransaction(message)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("[%s] gullak api failed: %v", message.ID, err)
 	}
 
 	if err := c.CreateTransaction(txn); err != nil {
-		return err
+		return "", fmt.Errorf("[%s] gullak api failed: %v", message.ID, err)
 	}
 
-	return nil
+	return fmt.Sprintf("[%s] gullak transaction added: %v", message.ID, txn), nil
 }
 
 func (c *Client) CreateTransaction(txn models.Transaction) error {

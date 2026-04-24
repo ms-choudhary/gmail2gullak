@@ -18,6 +18,7 @@ func main() {
 	listenAddr := flag.String("listen", ":8999", "Listen addr for oauth redirect")
 	gullakAddr := flag.String("gullakaddr", "http://localhost:3333", "gullak server address")
 	casparserAddr := flag.String("casparseraddr", "http://localhost:8080", "casparser server address")
+	slacktoken := flag.String("slacktoken", "", "slack token")
 	pollInterval := flag.Duration("every", 30*time.Second, "Poll interval")
 	flag.Parse()
 
@@ -38,8 +39,8 @@ func main() {
 			if err != nil {
 				log.Printf("could not get email client: %v", err)
 			} else {
-				if err := client.ProcessMessages(ctx, handlers); err != nil {
-					log.Printf("failed to read messages, will be retried: %v", err)
+				if err := client.ProcessMessages(ctx, handlers, *slacktoken); err != nil {
+					log.Printf("failed to read and process messages, will be retried.")
 				}
 			}
 
