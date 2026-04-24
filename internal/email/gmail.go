@@ -25,7 +25,7 @@ const (
 )
 
 type Client interface {
-	ProcessMessages(ctx context.Context, handlers []models.APIHandler, token string) error
+	ProcessMessages(ctx context.Context, handlers []models.APIHandler) error
 }
 
 type GmailClient struct {
@@ -387,7 +387,16 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 	}, nil
 }
 
-func postSlackMessage(token, message string) error {
+func envOrFatal(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatal("missing %s", key)
+	}
+	return v
+}
+
+func postSlackMessage(message string) error {
+	token := envOrFatal("SLACK_TOKEN")
 	client := slack.New(token)
 	_, _, err := client.PostMessage("C0AUQ88NCAZ", slack.MsgOptionText(message, false))
 	if err != nil {
@@ -396,7 +405,7 @@ func postSlackMessage(token, message string) error {
 	return nil
 }
 
-func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler, slackToken string) error {
+func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler) error {
 	if err := c.refreshToken(ctx); err != nil {
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
@@ -431,14 +440,14 @@ func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.API
 
 				if err != nil {
 					log.Printf("handler failed: %v", err)
-					if err := postSlackMessage(slackToken, err.Error()); err != nil {
+					if err := postSlackMessage(err.Error()); err != nil {
 						log.Printf("failed to slack: %v", err)
 					}
 					return err
 				}
 
 				log.Print(status)
-				if err := postSlackMessage(slackToken, status); err != nil {
+				if err := postSlackMessage(status); err != nil {
 					log.Printf("failed to slack: %v", err)
 				}
 
