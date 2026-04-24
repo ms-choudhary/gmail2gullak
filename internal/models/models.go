@@ -27,3 +27,8 @@ type Transaction struct {
 func (t Transaction) String() string {
 	return fmt.Sprintf("Amount: %f, Description: %s, Date: %s", t.Amount, t.Description, t.TransactionDate)
 }
+
+type APIHandler interface {
+	Match(message Message) bool
+	Handle(message Message) error
+}

@@ -7,14 +7,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ms-choudhary/gmail2gullak/internal/casparser"
 	"github.com/ms-choudhary/gmail2gullak/internal/email"
 	"github.com/ms-choudhary/gmail2gullak/internal/gullak"
+	"github.com/ms-choudhary/gmail2gullak/internal/models"
 )
 
 func main() {
 	credentialsFile := flag.String("credentials", "credentials.json", "Google Oauth Credentails File")
 	listenAddr := flag.String("listen", ":8999", "Listen addr for oauth redirect")
-	gullakAddr := flag.String("gullakaddr", "http://localhost:3333", "Gullak server address")
+	gullakAddr := flag.String("gullakaddr", "http://localhost:3333", "gullak server address")
+	casparserAddr := flag.String("casparseraddr", "http://localhost:8080", "casparser server address")
 	pollInterval := flag.Duration("every", 30*time.Second, "Poll interval")
 	flag.Parse()
 
@@ -23,6 +26,9 @@ func main() {
 		log.Fatal(err)
 	}
 	gullakClient := gullak.NewClient(*gullakAddr)
+	casparserClient := casparser.NewClient(*casparserAddr)
+
+	handlers := []models.APIHandler{gullakClient, casparserClient}
 
 	go func() {
 		ctx := context.Background()
@@ -32,7 +38,7 @@ func main() {
 			if err != nil {
 				log.Printf("could not get email client: %v", err)
 			} else {
-				if err := client.ProcessMessages(ctx, gullakClient); err != nil {
+				if err := client.ProcessMessages(ctx, handlers); err != nil {
 					log.Printf("failed to read messages, will be retried: %v", err)
 				}
 			}

@@ -18,6 +18,24 @@ func NewClient(addr string) *Client {
 	return &Client{Addr: addr}
 }
 
+func (c *Client) Match(msg models.Message) bool {
+	_, err := ParseTransaction(msg)
+	return err != NotTransactionErr
+}
+
+func (c *Client) Handle(message models.Message) error {
+	txn, err := ParseTransaction(message)
+	if err != nil {
+		return err
+	}
+
+	if err := c.CreateTransaction(txn); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *Client) CreateTransaction(txn models.Transaction) error {
 	b, err := json.Marshal(txn)
 	if err != nil {

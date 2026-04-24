@@ -11,9 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ms-choudhary/gmail2gullak/internal/gullak"
 	"github.com/ms-choudhary/gmail2gullak/internal/models"
-	"github.com/ms-choudhary/gmail2gullak/internal/parser"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
@@ -26,7 +24,7 @@ const (
 )
 
 type Client interface {
-	ProcessMessages(ctx context.Context, gc *gullak.Client) error
+	ProcessMessages(ctx context.Context, handlers []models.APIHandler) error
 }
 
 type GmailClient struct {
@@ -388,7 +386,7 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 	}, nil
 }
 
-func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.Client) error {
+func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler) error {
 	if err := c.refreshToken(ctx); err != nil {
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
@@ -417,19 +415,13 @@ func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.
 			continue
 		}
 
-		txn, err := parser.ParseTransaction(msg)
-		if parser.IsNotTransaction(err) {
-			// skip message if not transaction
-			state.LastMessageID = messages[i].Id
-			continue
-		} else if err != nil {
-			log.Printf("failed to parse transaction: %v", err)
-			continue
-		}
-
-		if err := gullakClient.CreateTransaction(txn); err != nil {
-			log.Printf("failed to create transaction: %v", err)
-			continue
+		for _, h := range handlers {
+			if h.Match(msg) {
+				if err := h.Handle(msg); err != nil {
+					log.Printf("failed to handle: %v", err)
+				}
+				break
+			}
 		}
 
 		state.LastMessageID = messages[i].Id

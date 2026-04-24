@@ -1,4 +1,4 @@
-package parser
+package gullak
 
 import (
 	"errors"
@@ -34,10 +34,6 @@ var (
 )
 
 var NotTransactionErr = errors.New("not a transaction")
-
-func IsNotTransaction(err error) bool {
-	return err == NotTransactionErr
-}
 
 func (p Parser) parse(msg models.Message) (models.Transaction, error) {
 	txn := models.Transaction{MessageID: msg.ID}
