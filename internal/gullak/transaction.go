@@ -1,4 +1,4 @@
-package parser
+package gullak
 
 import (
 	"errors"
@@ -23,8 +23,8 @@ var (
 	}
 
 	hdfcCreditCardParser = Parser{
-		priceRegex:  regexp.MustCompile(`Rs\.(\d+(?:\.\d+)?) is debited from`),
-		vendorRegex: regexp.MustCompile(`towards\s+([^\s]+(?:\s+[^\s]+)*?)\s+on\s+`),
+		priceRegex:  regexp.MustCompile(`Rs\.\s+([\d,]+\.?\d*)<\/b>`),
+		vendorRegex: regexp.MustCompile(`towards\s+<b>(.+?)<\/b>\s+on\s+`),
 	}
 
 	dcbBankParser = Parser{
@@ -35,12 +35,8 @@ var (
 
 var NotTransactionErr = errors.New("not a transaction")
 
-func IsNotTransaction(err error) bool {
-	return err == NotTransactionErr
-}
-
 func (p Parser) parse(msg models.Message) (models.Transaction, error) {
-	txn := models.Transaction{}
+	txn := models.Transaction{MessageID: msg.ID}
 
 	priceMatch := p.priceRegex.FindStringSubmatch(msg.Body)
 	if len(priceMatch) > 1 {
@@ -98,7 +94,7 @@ func parseDate(datestr string) (string, error) {
 func ParseTransaction(msg models.Message) (models.Transaction, error) {
 	if strings.Contains(msg.Subject, "You have done a UPI txn") {
 		return hdfcUPIParser.parse(msg)
-	} else if strings.Contains(msg.Subject, "debited via Credit Card") {
+	} else if strings.Contains(msg.Subject, "payment was made using your Credit Card") {
 		return hdfcCreditCardParser.parse(msg)
 	} else if strings.Contains(msg.Subject, "DCB Bank email alert: Account debit intimation") {
 		return dcbBankParser.parse(msg)

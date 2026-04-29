@@ -11,9 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ms-choudhary/gmail2gullak/internal/gullak"
 	"github.com/ms-choudhary/gmail2gullak/internal/models"
-	"github.com/ms-choudhary/gmail2gullak/internal/parser"
+	"github.com/slack-go/slack"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
@@ -26,7 +25,7 @@ const (
 )
 
 type Client interface {
-	ProcessMessages(ctx context.Context, gc *gullak.Client) error
+	ProcessMessages(ctx context.Context, handlers []models.APIHandler) error
 }
 
 type GmailClient struct {
@@ -82,13 +81,13 @@ func (s *Server) HandleOauthCallback(w http.ResponseWriter, req *http.Request) {
 
 	token, err := s.Config.Exchange(context.TODO(), code)
 	if err != nil {
-		log.Print("oauthcallback: failed to retrieve token: %v", err)
+		log.Printf("oauthcallback: failed to retrieve token: %v", err)
 		fmt.Fprintf(w, "failed to retrieve token: %v", err)
 		return
 	}
 
 	if err := saveToken(token); err != nil {
-		log.Print("oauthcallback: failed to save token: %v", err)
+		log.Printf("oauthcallback: failed to save token: %v", err)
 		fmt.Fprintf(w, "failed to save token: %v", err)
 		return
 	}
@@ -155,7 +154,6 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 		return nil
 	}
 
-	log.Println("token expired, refreshing...")
 	tokenSource := c.config.TokenSource(ctx, c.token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
@@ -177,7 +175,6 @@ func (c *GmailClient) refreshToken(ctx context.Context) error {
 	c.service = srv
 
 	c.refreshTokenFailed = false
-	log.Println("token refreshed successfully")
 	return nil
 }
 
@@ -251,39 +248,124 @@ func decodeBase64URL(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
-// extractBody recursively extracts the body from message payload
-func extractBody(payload *gmail.MessagePart) string {
-	body := ""
-
-	// If this part has body data
-	if payload.Body != nil && payload.Body.Data != "" {
-		// Decode base64url encoded data
-		data, err := decodeBase64URL(payload.Body.Data)
-		if err == nil {
-			body += string(data)
-		}
+func isPDFAttachment(part *gmail.MessagePart) bool {
+	if part == nil {
+		return false
 	}
 
-	// If this part has sub-parts, process them recursively
+	isPDFMimeType := strings.EqualFold(part.MimeType, "application/pdf")
+	hasPDFFilename := strings.HasSuffix(strings.ToLower(part.Filename), ".pdf")
+
+	return (isPDFMimeType || hasPDFFilename) && part.Body != nil
+}
+
+func decodePartBody(part *gmail.MessagePart) string {
+	if part == nil || part.Body == nil || part.Body.Data == "" {
+		return ""
+	}
+
+	data, err := decodeBase64URL(part.Body.Data)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
+}
+
+func collectPDFAttachmentParts(payload *gmail.MessagePart) []*gmail.MessagePart {
+	if payload == nil {
+		return nil
+	}
+
+	var parts []*gmail.MessagePart
+
+	if isPDFAttachment(payload) {
+		parts = append(parts, payload)
+	}
+
+	for _, part := range payload.Parts {
+		parts = append(parts, collectPDFAttachmentParts(part)...)
+	}
+
+	return parts
+}
+
+// extractBody recursively extracts the plain-text body from the payload.
+func extractBody(payload *gmail.MessagePart) string {
+	if payload == nil {
+		return ""
+	}
+
+	if payload.MimeType == "text/plain" {
+		return decodePartBody(payload)
+	}
+
+	body := decodePartBody(payload)
+
 	if payload.Parts != nil {
 		for _, part := range payload.Parts {
-			// Prefer text/plain content
-			if part.MimeType == "text/plain" {
-				if part.Body != nil && part.Body.Data != "" {
-					data, err := decodeBase64URL(part.Body.Data)
-					if err == nil {
-						body = string(data) // Replace with plain text
-						break
-					}
-				}
-			} else {
-				// Recursively extract from sub-parts
-				body += extractBody(part)
+			partBody := extractBody(part)
+
+			if part.MimeType == "text/plain" && partBody != "" {
+				return partBody
 			}
+
+			body += partBody
 		}
 	}
 
 	return body
+}
+
+func (c *GmailClient) getPDFAttachmentData(messageID string, part *gmail.MessagePart) ([]byte, error) {
+	if part == nil || part.Body == nil {
+		return nil, fmt.Errorf("pdf attachment is missing body metadata")
+	}
+
+	if part.Body.Data != "" {
+		data, err := decodeBase64URL(part.Body.Data)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode inline attachment data: %v", err)
+		}
+
+		return data, nil
+	}
+
+	if part.Body.AttachmentId == "" {
+		return nil, fmt.Errorf("pdf attachment is missing attachment id")
+	}
+
+	attachment, err := c.service.Users.Messages.Attachments.Get("me", messageID, part.Body.AttachmentId).Do()
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch attachment data: %v", err)
+	}
+
+	data, err := decodeBase64URL(attachment.Data)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode attachment data: %v", err)
+	}
+
+	return data, nil
+}
+
+func (c *GmailClient) extractPDFAttachments(messageID string, payload *gmail.MessagePart) []models.PDFAttachment {
+	var attachments []models.PDFAttachment
+
+	for _, part := range collectPDFAttachmentParts(payload) {
+		fileData, err := c.getPDFAttachmentData(messageID, part)
+		if err != nil {
+			log.Printf("failed to load pdf attachment %q for message %s: %v", part.Filename, messageID, err)
+			continue
+		}
+
+		attachments = append(attachments, models.PDFAttachment{
+			Filename: part.Filename,
+			MimeType: part.MimeType,
+			FileData: fileData,
+		})
+	}
+
+	return attachments
 }
 
 func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
@@ -292,15 +374,38 @@ func (c *GmailClient) getMessageByID(id string) (models.Message, error) {
 		return models.Message{}, fmt.Errorf("could not get message: %s: %v", id, err)
 	}
 
+	body := extractBody(msg.Payload)
+	pdfAttachments := c.extractPDFAttachments(id, msg.Payload)
+
 	return models.Message{
-		Subject: extractHeader(msg.Payload.Headers, "Subject"),
-		From:    extractHeader(msg.Payload.Headers, "From"),
-		Date:    extractHeader(msg.Payload.Headers, "Date"),
-		Body:    extractBody(msg.Payload),
+		ID:             id,
+		Subject:        extractHeader(msg.Payload.Headers, "Subject"),
+		From:           extractHeader(msg.Payload.Headers, "From"),
+		Date:           extractHeader(msg.Payload.Headers, "Date"),
+		Body:           body,
+		PDFAttachments: pdfAttachments,
 	}, nil
 }
 
-func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.Client) error {
+func envOrFatal(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatal("missing %s", key)
+	}
+	return v
+}
+
+func postSlackMessage(message string) error {
+	token := envOrFatal("SLACK_TOKEN")
+	client := slack.New(token)
+	_, _, err := client.PostMessage("C0AUQ88NCAZ", slack.MsgOptionText(message, false))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GmailClient) ProcessMessages(ctx context.Context, handlers []models.APIHandler) error {
 	if err := c.refreshToken(ctx); err != nil {
 		return fmt.Errorf("failed to refresh token: %v", err)
 	}
@@ -326,23 +431,28 @@ func (c *GmailClient) ProcessMessages(ctx context.Context, gullakClient *gullak.
 		msg, err := c.getMessageByID(messages[i].Id)
 		if err != nil {
 			log.Print(err)
-			continue
+			return err
 		}
 
-		txn, err := parser.ParseTransaction(msg)
-		if parser.IsNotTransaction(err) {
-			// skip message if not transaction
-			state.LastMessageID = messages[i].Id
-			continue
-		} else if err != nil {
-			log.Printf("failed to parse transaction: %v", err)
-			continue
-		}
+		for _, h := range handlers {
+			if h.Match(msg) {
+				status, err := h.Handle(msg)
 
-		log.Printf("[%s] creating transaction: %v", messages[i].Id, txn)
-		if err := gullakClient.CreateTransaction(txn); err != nil {
-			log.Printf("failed to create transaction: %v", err)
-			continue
+				if err != nil {
+					log.Printf("handler failed: %v", err)
+					if err := postSlackMessage(err.Error()); err != nil {
+						log.Printf("failed to slack: %v", err)
+					}
+					return err
+				}
+
+				log.Print(status)
+				if err := postSlackMessage(status); err != nil {
+					log.Printf("failed to slack: %v", err)
+				}
+
+				break
+			}
 		}
 
 		state.LastMessageID = messages[i].Id
