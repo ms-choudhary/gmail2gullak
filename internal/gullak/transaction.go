@@ -27,6 +27,11 @@ var (
 		vendorRegex: regexp.MustCompile(`towards\s+<b>(.+?)<\/b>\s+on\s+`),
 	}
 
+	hdfcDebitCardParser = Parser{
+		priceRegex:  regexp.MustCompile(`Rs\.(\d+(?:\.\d+)?) is debited`),
+		vendorRegex: regexp.MustCompile(`ending ....\s+\S+\s+(.+?)\s+on\s+`),
+	}
+
 	dcbBankParser = Parser{
 		priceRegex:  regexp.MustCompile(`INR\s+(\d+\.?\d*)\s+on`),
 		vendorRegex: regexp.MustCompile(`(?:at\s+VS\/\d+\/[\d:]+\/(.+?)\s+\.|on account of (.+?)\.\s+Available)`),
@@ -92,11 +97,13 @@ func parseDate(datestr string) (string, error) {
 }
 
 func ParseTransaction(msg models.Message) (models.Transaction, error) {
-	if strings.Contains(msg.Subject, "You have done a UPI txn") {
+	if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "You have done a UPI txn") {
 		return hdfcUPIParser.parse(msg)
-	} else if strings.Contains(msg.Subject, "payment was made using your Credit Card") {
+	} else if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "payment was made using your Credit Card") {
 		return hdfcCreditCardParser.parse(msg)
-	} else if strings.Contains(msg.Subject, "DCB Bank email alert: Account debit intimation") {
+	} else if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "debited via Debit Card") {
+		return hdfcDebitCardParser.parse(msg)
+	} else if strings.Contains(msg.From, "dcb") && strings.Contains(msg.Subject, "DCB Bank email alert: Account debit intimation") {
 		return dcbBankParser.parse(msg)
 	}
 	return models.Transaction{}, NotTransactionErr
