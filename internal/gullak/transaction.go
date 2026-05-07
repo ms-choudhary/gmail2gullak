@@ -22,6 +22,11 @@ var (
 		vendorRegex: regexp.MustCompile(`towards VPA\s+\S+\s+(.+?)\s+on\s+`),
 	}
 
+	hdfcUPIToBankParser = Parser{
+		priceRegex:  regexp.MustCompile(`Rs\.(\d+(?:\.\d+)?) has been debited`),
+		vendorRegex: regexp.MustCompile(`to (account\s+.+?)\s+on\s+`),
+	}
+
 	hdfcCreditCardParser = Parser{
 		priceRegex:  regexp.MustCompile(`Rs\.\s+([\d,]+\.?\d*)<\/b>`),
 		vendorRegex: regexp.MustCompile(`towards\s+<b>(.+?)<\/b>\s+on\s+`),
@@ -98,7 +103,11 @@ func parseDate(datestr string) (string, error) {
 
 func ParseTransaction(msg models.Message) (models.Transaction, error) {
 	if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "You have done a UPI txn") {
-		return hdfcUPIParser.parse(msg)
+		txn, err := hdfcUPIParser.parse(msg)
+		if err != nil {
+			return hdfcUPIToBankParser.parse(msg)
+		}
+		return txn, nil
 	} else if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "payment was made using your Credit Card") {
 		return hdfcCreditCardParser.parse(msg)
 	} else if strings.Contains(msg.From, "hdfc") && strings.Contains(msg.Subject, "debited via Debit Card") {
