@@ -19,7 +19,7 @@ type Parser struct {
 var (
 	hdfcUPIParser = Parser{
 		priceRegex:  regexp.MustCompile(`Rs\.(\d+(?:\.\d+)?) is debited`),
-		vendorRegex: regexp.MustCompile(`towards VPA\s+\S+\s+(.+?)\s+on\s+`),
+		vendorRegex: regexp.MustCompile(`towards VPA\s+\S+\s+\((.+?)\)\s+on\s+`),
 	}
 
 	hdfcUPIToBankParser = Parser{
